@@ -132,7 +132,7 @@ def _linear_forecast(series, periods):
     overall_avg = y.mean() if y.mean() != 0 else 1
     sf_by_idx   = monthly_avg / overall_avg
 
-    fitted = intercept + slope * x
+    fitted = (intercept + slope * x) * sf_by_idx[x % 12]
     future_x = np.arange(n, n + periods)
     future_sf = sf_by_idx[future_x % 12]
     future    = (intercept + slope * future_x) * future_sf
@@ -168,8 +168,11 @@ def _prophet_forecast(monthly, col, periods):
         future   = m.make_future_dataframe(periods=periods, freq="MS")
         
         if has_inflation:
+            # Merge historical inflation back in for accurate historical fit
+            future = future.merge(df_ts[['ds', 'Inflation_Rate']], on='ds', how='left')
+            # Fill future dates with last known inflation
             last_inflation = df_ts['Inflation_Rate'].iloc[-1]
-            future['Inflation_Rate'] = last_inflation
+            future['Inflation_Rate'] = future['Inflation_Rate'].fillna(last_inflation)
             
         forecast = m.predict(future)
         return forecast[["ds", "yhat", "yhat_lower", "yhat_upper"]]

@@ -339,9 +339,9 @@ if uploaded_file is not None:
                     "Actual Claims":    monthly.set_index("Month")["Claim_Amount"],
                 }).join(
                     pd.DataFrame({
-                        "Forecast":     fut_fc.set_index("ds")["yhat"],
-                        "Upper Bound":  fut_fc.set_index("ds")["yhat_upper"],
-                        "Lower Bound":  fut_fc.set_index("ds")["yhat_lower"],
+                        "Forecast":     fc_df.set_index("ds")["yhat"],
+                        "Upper Bound":  fc_df.set_index("ds")["yhat_upper"],
+                        "Lower Bound":  fc_df.set_index("ds")["yhat_lower"],
                     }),
                     how="outer",
                 )
@@ -352,11 +352,14 @@ if uploaded_file is not None:
             st.markdown("#### Premium Forecast")
             pfc_df = forecast_results["premium_forecast"]
             if not pfc_df.empty and not monthly.empty:
-                fut_pfc = pfc_df[pd.to_datetime(pfc_df["ds"]) > last_hist]
                 pchart  = pd.DataFrame({
                     "Actual Premium":  monthly.set_index("Month")["Written_Premium"],
                 }).join(
-                    pd.DataFrame({"Forecast": fut_pfc.set_index("ds")["yhat"]}),
+                    pd.DataFrame({
+                        "Forecast": pfc_df.set_index("ds")["yhat"],
+                        "Upper Bound":  pfc_df.set_index("ds")["yhat_upper"],
+                        "Lower Bound":  pfc_df.set_index("ds")["yhat_lower"],
+                    }),
                     how="outer",
                 )
                 fig_p = px.line(pchart, title="Premium Forecast", color_discrete_sequence=px.colors.qualitative.Plotly)
