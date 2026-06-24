@@ -1,0 +1,12 @@
+pandas
+numpy
+streamlit
+plotly
+prophet
+google-generativeai
+fpdf2
+xgboost
+scikit-learn
+openpyxl
+openai
+python-dotenv
