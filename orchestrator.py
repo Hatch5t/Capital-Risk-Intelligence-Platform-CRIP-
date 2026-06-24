@@ -529,21 +529,20 @@ with chat_container:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        # Chat Suggestions
-        st.markdown("<small>💡 **Suggested Prompts:**</small>", unsafe_allow_html=True)
-        sug_cols = st.columns(3)
-        suggestions = [
-            "What is our overall Capital Adequacy?",
-            "Which product has the highest risk?",
-            "Explain our Expected Shortfall."
-        ]
-        
-        # We'll use a session state variable to handle button clicks gracefully, 
-        # but Streamlit buttons directly setting the prompt also works if handled before the main if block.
+        # Chat Suggestions (Only show if no user messages have been sent yet)
         clicked_suggestion = None
-        for i, sug in enumerate(suggestions):
-            if sug_cols[i].button(sug, key=f"sug_{i}", use_container_width=True):
-                clicked_suggestion = sug
+        if len(st.session_state.messages) <= 1:
+            st.markdown("<small>💡 **Suggested Prompts:**</small>", unsafe_allow_html=True)
+            sug_cols = st.columns(3)
+            suggestions = [
+                "What is our overall Capital Adequacy?",
+                "Which product has the highest risk?",
+                "Explain our Expected Shortfall."
+            ]
+            
+            for i, sug in enumerate(suggestions):
+                if sug_cols[i].button(sug, key=f"sug_{i}", use_container_width=True):
+                    clicked_suggestion = sug
 
         # Chat Input
         prompt = st.chat_input("Type your question here...")
