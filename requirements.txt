@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 pandas
 numpy
 streamlit
@@ -11,3 +12,21 @@ openpyxl
 openai
 python-dotenv
 jupyter
+=======
+
+pandas 
+numpy 
+matplotlib 
+seaborn 
+xgboost 
+scikit-learn 
+streamlit 
+openpyxl
+
+# Core pandas numpy 
+# UI streamlit plotly 
+# Forecasting prophet 
+# AI reporting google-generativeai 
+# PDF export fpdf2 
+# Agent framework agno
+>>>>>>> d72643c (Updated project)
