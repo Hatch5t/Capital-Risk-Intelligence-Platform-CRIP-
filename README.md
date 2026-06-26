@@ -70,7 +70,7 @@ The pipeline consists of the following key components:
 
 ## Contributers:
 - Aarush Rajan Ranjan
-- Deekshikha
+- Deekshika
 - Saumya Bajaj
 - Varad Srivastava
 

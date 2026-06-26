@@ -94,7 +94,30 @@ with st.sidebar:
             
     st.divider()
     
+<<<<<<< HEAD
     st.header("📈 Forecasting Settings")
+=======
+    st.header("Appearance")
+    dark_mode = st.toggle("🌙 Dark Mode")
+    if dark_mode:
+        st.markdown(
+            """
+            <style>
+            html {
+                filter: invert(1) hue-rotate(180deg);
+            }
+            /* Exclude specific elements like charts and images from inversion so they look normal */
+            img, video, iframe, [data-testid="stImage"], .stPlotlyChart {
+                filter: invert(1) hue-rotate(180deg);
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+    
+    st.header("Forecasting Settings")
+>>>>>>> dc2b999d3e4dbc30047f7db840a3ab70d2199961
     forecast_periods = st.slider("Forecast horizon (months)", 3, 24, 12)
 
     st.divider()
@@ -208,33 +231,35 @@ if uploaded_file is not None:
                 msg = f"Stress Testing complete — Solvency ratio: {sol:.1f}% — Capital shortfall!"
                 state_val = "error"
             status5.update(label=msg, state=state_val, expanded=False)
-            
-        st.toast("Pipeline execution complete!")
-        st.success("All AI Agents have successfully completed their analysis.")
-
-        st.divider()
-
         # ── Agent 6: Actuarial Report ───────────────────────────────────────────
-
-        st.subheader("📋 Agent 6: Actuarial Valuation Report Running...")
-
-        pb6 = st.progress(0)
-        with st.spinner("Generating actuarial valuation report..."):
+        with st.status("Agent 6: Actuarial Valuation Report Running...", expanded=True) as status6:
+            st.write("Generating actuarial valuation report...")
             time.sleep(1)
-            pb6.progress(50)
             report_results = run_report_pipeline(
                 gov_results,
                 pricing_results,
                 risk_results,
                 forecast_results,
                 stress_results
-                )
+            )
             # Store in session_state so the chat tab can access it anytime
             st.session_state["report_results"] = report_results
             st.session_state["chat_history"]   = []   # reset chat on new run
-            pb6.progress(100)
             time.sleep(0.5)
-        st.success("✅ Actuarial Valuation Report Generated!")
+            status6.update(label="Actuarial Valuation Report Generated!", state="complete", expanded=False)
+
+        report_df = create_report_dataframe(report_results)
+        st.download_button(
+            label="⬇️ Download Actuarial Report Summary",
+            data=report_df.to_csv(index=False).encode("utf-8"),
+            file_name="actuarial_report_summary.csv",
+            mime="text/csv",
+        )
+
+        st.toast("Pipeline execution complete!")
+        st.success("All AI Agents have successfully completed their analysis.")
+
+        st.divider()
 
         # ── Sidebar chat — rendered HERE so session_state is already populated ──
         with st.sidebar:
@@ -332,6 +357,7 @@ if uploaded_file is not None:
                 prof_df = df_pricing.groupby("Product_Type")["Underwriting_Profit"].sum().reset_index()
                 st.plotly_chart(px.bar(prof_df, x='Product_Type', y='Underwriting_Profit', color_discrete_sequence=['#0f4c81']), use_container_width=True)
 
+<<<<<<< HEAD
             st.subheader("🤖 AI Pricing Insights")
             for _, row in df_pricing.groupby("Product_Type")["Combined_Ratio"].mean().reset_index().iterrows():
                 product, ratio = row["Product_Type"], row["Combined_Ratio"]
@@ -341,6 +367,20 @@ if uploaded_file is not None:
                     st.success(f"🟢 **{product}**: Combined Ratio {ratio:.2f} → Highly Profitable.")
                 else:
                     st.warning(f"🟡 **{product}**: Combined Ratio {ratio:.2f} → Monitor Pricing.")
+=======
+            st.subheader("AI Pricing Insights")
+            if "Product_Type" in df_pricing.columns:
+                for _, row in df_pricing.groupby("Product_Type")["Combined_Ratio"].mean().reset_index().iterrows():
+                    product, ratio = row["Product_Type"], row["Combined_Ratio"]
+                    if ratio > 1:
+                        st.error(f"**{product}**: Combined Ratio {ratio:.2f} → Underpriced. Immediate rate action required.")
+                    elif ratio < 0.80:
+                        st.success(f"**{product}**: Combined Ratio {ratio:.2f} → Highly Profitable.")
+                    else:
+                        st.warning(f"**{product}**: Combined Ratio {ratio:.2f} → Monitor Pricing.")
+            else:
+                st.info("Product Type data not available for AI Pricing Insights.")
+>>>>>>> dc2b999d3e4dbc30047f7db840a3ab70d2199961
 
             st.subheader("Pricing Dataset Preview")
             csv = df_pricing.to_csv(index=False).encode('utf-8')

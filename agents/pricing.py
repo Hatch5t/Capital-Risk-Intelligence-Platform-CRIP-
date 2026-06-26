@@ -60,7 +60,7 @@ def run_pricing_pipeline(df):
     
     # KPIs
     kpis = {
-        "Total_Premium": df_pricing['Written_Premium'].sum(),
+        "Total_Premium": df_pricing['Written_Premium'].sum() if 'Written_Premium' in df_pricing.columns else 0,
         "Total_Claims": df_pricing['Claim_Amount'].sum() if 'Claim_Amount' in df_pricing.columns else 0,
         "Total_Expenses": df_pricing['Total_Expense'].sum() if 'Total_Expense' in df_pricing.columns else 0,
         "Underwriting_Profit": df_pricing['Underwriting_Profit'].sum() if 'Underwriting_Profit' in df_pricing.columns else 0,
