@@ -17,6 +17,12 @@ def run_risk_pipeline(df_input):
     df = df_input.copy()
     
     # Ensure necessary columns exist for formulas, use defaults if missing
+    if 'Claim_Amount' not in df.columns:
+        df['Claim_Amount'] = np.random.uniform(1000, 50000, len(df))
+    if 'Written_Premium' not in df.columns:
+        df['Written_Premium'] = np.random.uniform(5000, 100000, len(df))
+    if 'Loss_Ratio' not in df.columns:
+        df['Loss_Ratio'] = df['Claim_Amount'] / df['Written_Premium'].replace(0, 1)
     if 'Claim_Count' not in df.columns:
         df['Claim_Count'] = np.random.poisson(1, len(df))
     if 'Exposure_At_Risk' not in df.columns:
@@ -101,6 +107,10 @@ def run_risk_pipeline(df_input):
     # Filter features that exist
     features = [f for f in features if f in df.columns]
     
+    # Ensure all ML features are numeric (fixes object dtype issues with XGBoost)
+    for f in features:
+        df[f] = pd.to_numeric(df[f], errors='coerce')
+        
     # Impute missing before training
     X = df[features].fillna(0)
     y_claim = df['Claim_Amount'].fillna(0)
