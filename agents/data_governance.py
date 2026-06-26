@@ -35,6 +35,14 @@ def check_duplicates(df, subset=None):
 def clean_data(df):
     df_clean = df.copy()
     
+    # Fix misplaced headers (common in dirty Excel files)
+    if 'Unnamed: 1' in df_clean.columns or any(isinstance(c, str) and c.startswith('CRIP') for c in df_clean.columns):
+        if 'Policy_ID' in df_clean.iloc[0].values:
+            df_clean.columns = df_clean.iloc[0]
+            df_clean = df_clean[1:].reset_index(drop=True)
+            df_clean.columns.name = None
+
+    
     if 'Product_Type' in df_clean.columns:
         df_clean['Product_Type'] = df_clean['Product_Type'].replace(['unnown', 'Unknown', 'unknown', 'UNKNOWN'], 'Miscellaneous')
         
@@ -83,6 +91,8 @@ def clean_data(df):
     return df_clean
 
 def detect_anomalies_isolation_forest(df, numerical_cols):
+    if df.empty or not numerical_cols:
+        return df.iloc[0:0]
     df_subset = df[numerical_cols].fillna(df[numerical_cols].median())
     model = IsolationForest(contamination=config.GOVERNANCE['IFOREST_CONTAMINATION'], random_state=42)
     predictions = model.fit_predict(df_subset)
