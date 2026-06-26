@@ -3,13 +3,11 @@ import pandas as pd
 import time
 import os
 
-<<<<<<< HEAD
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
-=======
 from agents.data_governance   import run_governance_pipeline
 from agents.pricing           import run_pricing_pipeline
 from agents.risk_intelligence import run_risk_pipeline
@@ -17,7 +15,6 @@ from agents.forecasting       import run_forecasting_pipeline   # ← Agent 4
 from agents.stress_testing    import run_stress_pipeline        # ← Agent 5
 from agents.report_agent import (run_report_pipeline,create_report_dataframe) # <- Agent 6
 
->>>>>>> d72643c (Updated project)
 
 st.set_page_config(
     page_title="CRIP Unified Orchestrator",
@@ -58,7 +55,7 @@ from agents.risk_intelligence import run_risk_pipeline
 bar.progress(70)
 from agents.forecasting       import run_forecasting_pipeline   # ← Agent 4
 from agents.stress_testing    import run_stress_pipeline        # ← Agent 5
-from agents.chat_agent        import generate_chat_response     # ← Agent 6
+from agents.chat_agent        import generate_chat_response, build_chat_context     # ← Agent 6
 bar.progress(100)
 import plotly.express as px
 
@@ -81,7 +78,7 @@ def get_forecast_results(df, periods): return run_forecasting_pipeline(df, forec
 @st.cache_data(show_spinner=False)
 def get_stress_results(df, scenario): return run_stress_pipeline(df, scenario_id=scenario)
 
-st.title("CRIP: Capital Risk Intelligence Platform")
+st.title("CRIP: Comprehensive Risk Intelligence Platform")
 st.markdown("Upload a raw insurance dataset to automatically orchestrate all AI agents.")
 
 # ── Sidebar settings ──────────────────────────────────────────────────────────
@@ -115,9 +112,6 @@ with st.sidebar:
         format_func=lambda x: SCENARIO_LABELS[x],
         index=3,
     )
-    
-    # ── Chat Container Placeholder ────────────────────────────────────────────────
-    chat_container = st.container()
 
 # ── File upload ───────────────────────────────────────────────────────────────
 uploaded_file = st.file_uploader(
@@ -235,20 +229,60 @@ if uploaded_file is not None:
                 forecast_results,
                 stress_results
                 )
+            # Store in session_state so the chat tab can access it anytime
+            st.session_state["report_results"] = report_results
+            st.session_state["chat_history"]   = []   # reset chat on new run
             pb6.progress(100)
             time.sleep(0.5)
         st.success("✅ Actuarial Valuation Report Generated!")
+
+        # ── Sidebar chat — rendered HERE so session_state is already populated ──
+        with st.sidebar:
+            st.divider()
+            st.markdown("### 🤖 Chief Risk Officer Assistant")
+            st.caption("Ask me anything about the generated risk reports.")
+
+            if "sb_chat_history" not in st.session_state:
+                st.session_state["sb_chat_history"] = []
+
+            _sb_ctx = build_chat_context(report_results)
+
+            # Quick-question buttons
+            _sb_quick = [
+                "What is our overall Capital Adequacy?",
+                "Which product is most profitable?",
+                "Summarise all open findings.",
+                "What is the forecast for next month?",
+            ]
+            for _sq in _sb_quick:
+                if st.button(_sq, key=f"sb_quick_{_sq[:20]}", use_container_width=True):
+                    st.session_state["sb_chat_history"].append({"role": "user", "content": _sq})
+                    with st.spinner("Thinking…"):
+                        _sb_reply = generate_chat_response(_sq, _sb_ctx)
+                    st.session_state["sb_chat_history"].append({"role": "assistant", "content": _sb_reply})
+                    st.rerun()
+
+            # Conversation history
+            for _sb_msg in st.session_state["sb_chat_history"]:
+                with st.chat_message(_sb_msg["role"]):
+                    st.markdown(_sb_msg["content"])
+
+            # Free-text input
+            _sb_input = st.chat_input("Ask about solvency, risks, findings…", key="sb_chat_input")
+            if _sb_input:
+                st.session_state["sb_chat_history"].append({"role": "user", "content": _sb_input})
+                with st.spinner("Thinking…"):
+                    _sb_reply = generate_chat_response(_sb_input, _sb_ctx)
+                st.session_state["sb_chat_history"].append({"role": "assistant", "content": _sb_reply})
+                st.rerun()
+
+            # Clear button
+            if st.session_state.get("sb_chat_history"):
+                if st.button("🗑️ Clear chat", key="sb_clear", use_container_width=True):
+                    st.session_state["sb_chat_history"] = []
+                    st.rerun()
         
         # ── Results tabs ──────────────────────────────────────────────────────
-<<<<<<< HEAD
-        st.header("Reports")
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "Data Governance",
-            "Pricing & Profitability",
-            "Risk Intelligence & ML",
-            "Time Series Forecast",
-            "Stress Testing",
-=======
         st.header("📊 Final Agent Reports")
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "🛡️ Data Governance",
@@ -257,7 +291,6 @@ if uploaded_file is not None:
             "📊 Time Series Forecast",
             "⚡ Stress Testing",
             "📋 Actuarial Report"
->>>>>>> d72643c (Updated project)
         ])
 
         # ── Tab 1: Data Governance ────────────────────────────────────────────
@@ -535,7 +568,6 @@ if uploaded_file is not None:
             st.plotly_chart(fig_cr, use_container_width=True)
 
             st.markdown("#### Solvency Ratio by Scenario")
-<<<<<<< HEAD
             fig_sol = px.bar(all_sc, x="Scenario", y="Solvency Ratio (%)", title="Solvency Ratio Comparison", color_discrete_sequence=["#0f4c81"])
             st.plotly_chart(fig_sol, use_container_width=True)
 
@@ -553,64 +585,6 @@ if uploaded_file is not None:
         dashboard_context["Stress Scenario Solvency"] = f"{stress_results['solvency_ratio']:.1f}%"
         
         st.session_state.dashboard_context = dashboard_context
-
-# ── Render Chat in Sidebar Container ──────────────────────────────────────────
-with chat_container:
-    st.divider()
-    st.subheader("Chief Risk Officer Assistant")
-    
-    if "dashboard_context" not in st.session_state:
-        st.info("Please upload a dataset and click 'Run Agents' to initialize the chat.")
-    else:
-        st.markdown("Ask me anything about the generated risk reports.")
-        
-        # Initialize Chat History
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-            
-        # Display History
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        # Chat Suggestions (Only show if no user messages have been sent yet)
-        clicked_suggestion = None
-        if len(st.session_state.messages) <= 1:
-            st.markdown("<small>💡 **Suggested Prompts:**</small>", unsafe_allow_html=True)
-            sug_cols = st.columns(3)
-            suggestions = [
-                "What is our overall Capital Adequacy?",
-                "Which product has the highest risk?",
-                "Explain our Expected Shortfall."
-            ]
-            
-            for i, sug in enumerate(suggestions):
-                if sug_cols[i].button(sug, key=f"sug_{i}", use_container_width=True):
-                    clicked_suggestion = sug
-
-        # Chat Input
-        prompt = st.chat_input("Type your question here...")
-        
-        # Override prompt if a suggestion was clicked
-        if clicked_suggestion:
-            prompt = clicked_suggestion
-            
-        if prompt:
-            # Append User Message
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-                
-            # Generate AI Response
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    response = generate_chat_response(prompt, st.session_state.dashboard_context)
-                    st.markdown(response)
-            
-            # Append AI Message
-            st.session_state.messages.append({"role": "assistant", "content": response})
-=======
-            st.bar_chart(all_sc.set_index("Scenario")[["Solvency Ratio (%)"]])
 
        # ── Tab 6: Final Report ────────────────────────────────────────────────
         with tab6:
@@ -1015,4 +989,3 @@ with chat_container:
                 "and should be reviewed by qualified actuarial professionals before "
                 "regulatory submission."
             )
->>>>>>> d72643c (Updated project)
