@@ -1,4 +1,11 @@
 import streamlit as st
+
+st.set_page_config(
+    page_title="CRIP Unified Orchestrator",
+    layout="wide",
+    page_icon="logo.png"
+)
+
 import pandas as pd
 import time
 import os
@@ -8,23 +15,6 @@ try:
     load_dotenv()
 except ImportError:
     pass
-from agents.data_governance   import run_governance_pipeline
-from agents.pricing           import run_pricing_pipeline
-from agents.risk_intelligence import run_risk_pipeline
-from agents.forecasting       import run_forecasting_pipeline   # ← Agent 4
-from agents.stress_testing    import run_stress_pipeline        # ← Agent 5
-from agents.report_agent import (run_report_pipeline,create_report_dataframe) # <- Agent 6
-from agents.chat_agent import (
-    generate_chat_response, build_chat_context,
-    render_api_key_sidebar, init_chat_history,
-    get_chat_history, append_chat_message,
-)
-
-st.set_page_config(
-    page_title="CRIP Unified Orchestrator",
-    layout="wide",
-    page_icon="cube"
-)
 
 st.markdown("""
 <style>
@@ -57,9 +47,14 @@ from agents.pricing           import run_pricing_pipeline, generate_rate_recomme
 bar.progress(50)
 from agents.risk_intelligence import run_risk_pipeline
 bar.progress(70)
-from agents.forecasting       import run_forecasting_pipeline   # ← Agent 4
-from agents.stress_testing    import run_stress_pipeline        # ← Agent 5
-from agents.chat_agent        import generate_chat_response, build_chat_context     # ← Agent 6
+from agents.forecasting       import run_forecasting_pipeline
+from agents.stress_testing    import run_stress_pipeline
+from agents.report_agent      import run_report_pipeline, create_report_dataframe, create_pdf_report
+from agents.chat_agent        import (
+    generate_chat_response, build_chat_context,
+    render_api_key_sidebar, init_chat_history,
+    get_chat_history, append_chat_message,
+)
 bar.progress(100)
 import plotly.express as px
 import plotly.graph_objects as go
@@ -83,12 +78,24 @@ def get_forecast_results(df, periods): return run_forecasting_pipeline(df, forec
 @st.cache_data(show_spinner=False)
 def get_stress_results(df, scenario): return run_stress_pipeline(df, scenario_id=scenario)
 
+@st.cache_data(show_spinner=False)
+def get_pdf_bytes(report_results): return create_pdf_report(report_results)
+
 st.title("CRIP: Comprehensive Risk Intelligence Platform")
 st.markdown("Upload a raw insurance dataset to automatically orchestrate all AI agents.")
 
 # ── Sidebar settings ──────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("<h1 style='text-align: left; font-size: 3rem; font-weight: 900; color: var(--primary-color); margin-top: -5rem; margin-bottom: 1rem; letter-spacing: 4px; pointer-events: none;'>CRIP</h1>", unsafe_allow_html=True)
+    import os
+    if os.path.exists("logo.png"):
+        st.markdown("<style>[data-testid='stSidebar'] > div:first-child { padding-top: 0rem !important; } [data-testid='stSidebar'] .block-container { padding-top: 1rem; }</style>", unsafe_allow_html=True)
+        _col1, _col2, _col3 = st.columns([1, 1.5, 1])
+        with _col2:
+            st.image("logo.png", use_container_width=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.markdown("<h1 style='text-align: left; font-size: 3rem; font-weight: 900; color: var(--primary-color); margin-top: -5rem; margin-bottom: 1rem; letter-spacing: 4px; pointer-events: none;'>CRIP</h1>", unsafe_allow_html=True)
+        
     st.header("Configuration")
     if st.button("Open Config File", use_container_width=True):
         try:
@@ -100,8 +107,8 @@ with st.sidebar:
     st.divider()
     
     st.header("Appearance")
-    dark_mode = st.toggle("🌙 Dark Mode")
-    if dark_mode:
+    light_mode = st.toggle("☀️ Light Mode")
+    if light_mode:
         st.markdown(
             """
             <style>
@@ -117,7 +124,6 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-    
     st.header("Forecasting Settings")
     forecast_periods = st.slider("Forecast horizon (months)", 3, 24, 12)
 
@@ -145,12 +151,21 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    if uploaded_file.name.endswith(".csv"):
-        df_raw = pd.read_csv(uploaded_file)
-    else:
-        df_raw = pd.read_excel(uploaded_file)
+    if st.session_state.get("dataset_name") != uploaded_file.name:
+        if uploaded_file.name.endswith(".csv"):
+            df_raw = pd.read_csv(uploaded_file)
+        else:
+            df_raw = pd.read_excel(uploaded_file)
+            
+        st.session_state["df_raw"] = df_raw
+        st.session_state["dataset_name"] = uploaded_file.name
+        st.session_state.agents_run = False # Reset agent run state only on new upload
 
-    st.success(f"Dataset '{uploaded_file.name}' loaded — {len(df_raw):,} rows and {len(df_raw.columns):,} columns.")
+if "df_raw" in st.session_state:
+    df_raw = st.session_state["df_raw"]
+    dataset_name = st.session_state.get("dataset_name", "Dataset")
+    
+    st.success(f"Dataset '{dataset_name}' loaded — {len(df_raw):,} rows and {len(df_raw.columns):,} columns.")
 
     if st.button("🚀 Run All Agents", type="primary"):
         st.session_state.agents_run = True
@@ -246,6 +261,12 @@ if uploaded_file is not None:
                 forecast_results,
                 stress_results
             )
+            # Attach raw agent results for PDF chart generation
+            report_results["raw_pricing"] = pricing_results
+            report_results["raw_risk"] = risk_results
+            report_results["raw_forecast"] = forecast_results
+            report_results["raw_stress"] = stress_results
+            
             # Store in session_state so the chat tab can access it anytime
             st.session_state["report_results"] = report_results
             st.session_state["crip_chat_messages"] = []   # reset chat on new run
@@ -253,11 +274,16 @@ if uploaded_file is not None:
             status6.update(label="Actuarial Valuation Report Generated!", state="complete", expanded=False)
 
         report_df = create_report_dataframe(report_results)
+        
+        with st.spinner("Generating High-Resolution PDF Charts & Report..."):
+            pdf_bytes = get_pdf_bytes(report_results)
+            
         st.download_button(
-            label="⬇️ Download Actuarial Report Summary",
-            data=report_df.to_csv(index=False).encode("utf-8"),
-            file_name="actuarial_report_summary.csv",
-            mime="text/csv",
+            label="📄 Download Comprehensive Final Report (PDF)",
+            data=pdf_bytes,
+            file_name="actuarial_final_report.pdf",
+            mime="application/pdf",
+            use_container_width=True,
         )
 
         st.toast("Pipeline execution complete!")
@@ -288,26 +314,24 @@ if uploaded_file is not None:
                         with st.spinner("Thinking…"):
                             _sb_reply = generate_chat_response(_sq, _sb_ctx)
                         append_chat_message("assistant", _sb_reply)
-                        st.rerun()
+
+                prompt = st.chat_input("💬 Ask about solvency, risks…")
+                if prompt:
+                    append_chat_message("user", prompt)
+                    with st.spinner("Thinking…"):
+                        _sb_reply = generate_chat_response(prompt, _sb_ctx)
+                    append_chat_message("assistant", _sb_reply)
 
                 for _sb_msg in get_chat_history():
-                        if _sb_msg["role"] == "user":
-                            st.markdown(f"**🧑 You:** {_sb_msg['content']}")
+                    if _sb_msg["role"] == "user":
+                        st.markdown(f"**🧑 You:** {_sb_msg['content']}")
+                    else:
+                        if "API Key not found" in _sb_msg["content"] or "Gemini error" in _sb_msg["content"]:
+                            st.error(_sb_msg["content"])
                         else:
                             st.info(_sb_msg["content"])
-                            
-                st.divider()
                         
-                _sb_input = st.text_input("💬 Ask a question",
-                                            placeholder="Ask about solvency, risks…",
-                                            key="sb_chat_input",
-                                            label_visibility="collapsed")
-                if st.button("Send ➤", key="sb_send", use_container_width=True) and _sb_input.strip():
-                    append_chat_message("user", _sb_input)
-                    with st.spinner("Thinking…"):
-                        _sb_reply = generate_chat_response(_sb_input, _sb_ctx)
-                    append_chat_message("assistant", _sb_reply)
-                    st.rerun()
+                st.divider()
 
                 if get_chat_history():
                     if st.button("🗑️ Clear chat", key="sb_clear", use_container_width=True):

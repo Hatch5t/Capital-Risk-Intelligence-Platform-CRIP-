@@ -13,6 +13,7 @@ python-dotenv
 jupyter
 matplotlib 
 seaborn 
+kaleido
 
 
 # Core pandas numpy 
@@ -21,4 +22,3 @@ seaborn
 # AI reporting google-generativeai 
 # PDF export fpdf2 
 # Agent framework agno
->>>>>>> d72643c (Updated project)
