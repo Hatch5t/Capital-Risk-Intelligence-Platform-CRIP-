@@ -1,9 +1,14 @@
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+import tempfile
+import shutil
 import numpy as np
 import json
 import os
 import subprocess
 import tempfile
+import shutil
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────────
@@ -1518,7 +1523,7 @@ def _format_bi_bullets(bi: dict) -> list:
 # ─────────────────────────────────────────────────────────────────
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, HRFlowable, KeepTogether
+    PageBreak, HRFlowable, KeepTogether, Image
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
@@ -1741,6 +1746,156 @@ def _on_page(canvas, doc, report_date):
     canvas.restoreState()
 
 
+
+def _generate_pdf_charts(r):
+    charts = {}
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        # Pricing Charts
+        pa = r.get("raw_pricing", {})
+        if not pa: pa = r  # fallback if passed flat
+        df_pricing = pa.get("df_pricing")
+        if df_pricing is not None and not df_pricing.empty and "Product_Type" in df_pricing.columns:
+            # Loss Ratio by Product
+            lr_df = df_pricing.groupby("Product_Type")["Loss_Ratio"].mean().reset_index()
+            cr_by_prod = df_pricing.groupby("Product_Type")["Combined_Ratio"].mean()
+            def _bar_color(product):
+                cr = cr_by_prod.get(product, 1.0)
+                if cr < 0.80: return "#2ecc71"
+                elif cr <= 0.95: return "#f39c12"
+                return "#e74c3c"
+            lr_df["bar_color"] = lr_df["Product_Type"].map(_bar_color)
+            fig_lr = go.Figure(go.Bar(
+                x=lr_df["Product_Type"], y=lr_df["Loss_Ratio"], marker_color=lr_df["bar_color"]
+            ))
+            fig_lr.add_hline(y=1.0, line_dash="dash", line_color="#e74c3c")
+            fig_lr.add_hline(y=0.85, line_dash="dot", line_color="#3498db")
+            fig_lr.update_layout(title="Loss Ratio by Product", xaxis_title="Product", yaxis_title="Loss Ratio")
+            p1 = os.path.join(temp_dir, "lr.png")
+            fig_lr.write_image(p1, engine="kaleido", width=600, height=350)
+            charts["loss_ratio"] = p1
+
+            # Underwriting Profit
+            prof_df = df_pricing.groupby("Product_Type")["Underwriting_Profit"].sum().reset_index()
+            prof_df["bar_color"] = prof_df["Underwriting_Profit"].apply(lambda v: "#2ecc71" if v > 0 else "#e74c3c")
+            fig_prof = go.Figure(go.Bar(
+                x=prof_df["Product_Type"], y=prof_df["Underwriting_Profit"], marker_color=prof_df["bar_color"]
+            ))
+            fig_prof.update_layout(title="Underwriting Profit by Product", xaxis_title="Product", yaxis_title="Profit")
+            p2 = os.path.join(temp_dir, "profit.png")
+            fig_prof.write_image(p2, engine="kaleido", width=600, height=350)
+            charts["profit"] = p2
+
+        tier_dist = pa.get("tier_dist", {})
+        if tier_dist:
+            fig_donut = go.Figure(go.Pie(
+                labels=list(tier_dist.keys()),
+                values=list(tier_dist.values()),
+                hole=0.4,
+                title="Profitability Tier Distribution",
+                marker=dict(colors=['#2ecc71', '#3498db', '#f39c12', '#e74c3c', '#9b59b6', '#1abc9c'])
+            ))
+            p_donut = os.path.join(temp_dir, "tier_dist.png")
+            fig_donut.write_image(p_donut, engine="kaleido", width=600, height=350)
+            charts["tier_dist"] = p_donut
+
+        # Risk Charts
+        ri = r.get("raw_risk", {})
+        if not ri: ri = r
+        fi = ri.get("feature_importance")
+        if fi is not None and not fi.empty:
+            fig_fi = px.bar(fi, x='Importance', y='Feature', orientation='h', title="Feature Importance", color='Importance', color_continuous_scale='Plotly3')
+            p3 = os.path.join(temp_dir, "fi.png")
+            fig_fi.write_image(p3, engine="kaleido", width=600, height=350)
+            charts["feature_importance"] = p3
+
+        # Forecast Charts
+        fa = r.get("raw_forecast", {})
+        if not fa: fa = r
+        
+        freq_df = fa.get("freq_df")
+        sev_df = fa.get("sev_df")
+        if freq_df is not None and not freq_df.empty and sev_df is not None and not sev_df.empty:
+            from plotly.subplots import make_subplots
+            fig_fs = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_fs.add_trace(go.Scatter(x=freq_df["Month"], y=freq_df["Claim_Frequency"], name="Frequency", line=dict(color="#3498db")), secondary_y=False)
+            fig_fs.add_trace(go.Scatter(x=sev_df["Month"], y=sev_df["Claim_Severity"], name="Severity", line=dict(color="#e74c3c")), secondary_y=True)
+            fig_fs.update_layout(title="Claim Frequency & Severity")
+            fig_fs.update_yaxes(title_text="Frequency (%)", secondary_y=False)
+            fig_fs.update_yaxes(title_text="Severity", secondary_y=True)
+            p_fs = os.path.join(temp_dir, "freq_sev.png")
+            fig_fs.write_image(p_fs, engine="kaleido", width=600, height=350)
+            charts["freq_sev"] = p_fs
+            
+        seasonal_df = fa.get("seasonal_df")
+        if seasonal_df is not None and not seasonal_df.empty:
+            fig_sea = go.Figure(data=[
+                go.Bar(name='Claims Index', x=seasonal_df['Month_Name'], y=seasonal_df['Avg_Claims_Index'], marker_color='#e74c3c'),
+                go.Bar(name='Premium Index', x=seasonal_df['Month_Name'], y=seasonal_df['Avg_Premium_Index'], marker_color='#3498db')
+            ])
+            fig_sea.update_layout(barmode='group', title='Seasonal Index (100 = annual average)')
+            fig_sea.add_hline(y=100, line_dash="dash", line_color="black")
+            p_sea = os.path.join(temp_dir, "seasonal.png")
+            fig_sea.write_image(p_sea, engine="kaleido", width=600, height=350)
+            charts["seasonal"] = p_sea
+            
+        fc_df = fa.get("claims_forecast")
+        monthly = fa.get("monthly_df")
+        if fc_df is not None and not fc_df.empty and monthly is not None and not monthly.empty:
+            last_hist = pd.to_datetime(monthly["Month"].max())
+            chart_data = pd.DataFrame({"Actual Claims": monthly.set_index("Month")["Claim_Amount"]}).join(
+                pd.DataFrame({
+                    "Forecast": fc_df.set_index("ds")["yhat"],
+                    "Upper Bound": fc_df.set_index("ds")["yhat_upper"],
+                    "Lower Bound": fc_df.set_index("ds")["yhat_lower"],
+                }), how="outer"
+            )
+            fig_fc = px.line(chart_data, title="Claims Forecast", color_discrete_sequence=['#2c3e50', '#e74c3c', '#bdc3c7', '#bdc3c7'])
+            p4 = os.path.join(temp_dir, "fc.png")
+            fig_fc.write_image(p4, engine="kaleido", width=600, height=350)
+            charts["forecast"] = p4
+            
+        prem_fc_df = fa.get("premium_forecast")
+        if prem_fc_df is not None and not prem_fc_df.empty and monthly is not None and not monthly.empty:
+            chart_data_prem = pd.DataFrame({"Actual Premium": monthly.set_index("Month")["Written_Premium"]}).join(
+                pd.DataFrame({
+                    "Forecast": prem_fc_df.set_index("ds")["yhat"],
+                    "Upper Bound": prem_fc_df.set_index("ds")["yhat_upper"],
+                    "Lower Bound": prem_fc_df.set_index("ds")["yhat_lower"],
+                }), how="outer"
+            )
+            fig_prem = px.line(chart_data_prem, title="Premium Forecast", color_discrete_sequence=['#2c3e50', '#2ecc71', '#bdc3c7', '#bdc3c7'])
+            p_prem = os.path.join(temp_dir, "prem_fc.png")
+            fig_prem.write_image(p_prem, engine="kaleido", width=600, height=350)
+            charts["premium_forecast"] = p_prem
+            
+        # Stress Charts
+        sa = r.get("raw_stress", {})
+        if not sa: sa = r
+        all_sc = sa.get("all_scenarios")
+        if all_sc is not None and not all_sc.empty:
+            fig_cr = px.bar(all_sc, x="Scenario", y=["Base CR (%)", "Stressed CR (%)"], barmode="group", title="Scenario Comparison", color_discrete_sequence=['#3498db', '#e74c3c'])
+            p5 = os.path.join(temp_dir, "stress.png")
+            fig_cr.write_image(p5, engine="kaleido", width=600, height=350)
+            charts["stress"] = p5
+            
+            fig_solv = go.Figure(go.Bar(
+                x=all_sc["Scenario"], 
+                y=all_sc["Solvency Ratio (%)"],
+                marker_color=["#2ecc71" if val >= 150 else "#f39c12" if val >= 100 else "#e74c3c" for val in all_sc["Solvency Ratio (%)"]]
+            ))
+            fig_solv.update_layout(title="Solvency Ratio by Scenario", xaxis_title="Scenario", yaxis_title="Solvency Ratio (%)")
+            fig_solv.add_hline(y=150, line_dash="dash", line_color="#27ae60")
+            fig_solv.add_hline(y=100, line_dash="dot", line_color="#e74c3c")
+            p_solv = os.path.join(temp_dir, "solv_scenario.png")
+            fig_solv.write_image(p_solv, engine="kaleido", width=600, height=350)
+            charts["solvency_scenario"] = p_solv
+
+    except Exception as e:
+        print("Chart generation failed:", e)
+    return charts, temp_dir
+
 def create_pdf_report(report_results):
     """
     Generates a professional multi-section PDF report.
@@ -1772,6 +1927,7 @@ def create_pdf_report(report_results):
     sol_fill   = _LGREEN if is_sol else _LRED
     sol_border = _GREEN  if is_sol else _RED
 
+    charts, temp_dir = _generate_pdf_charts(r)
     buf  = BytesIO()
     doc  = SimpleDocTemplate(
         buf, pagesize=A4,
@@ -1785,9 +1941,14 @@ def create_pdf_report(report_results):
     on_page = lambda c, d: _on_page(c, d, report_date)
 
     # ── COVER ────────────────────────────────────────────────────
-    story.append(Spacer(1, 1.5*cm))
+    if os.path.exists("logo.png"):
+        story.append(Image("logo.png", width=5*cm, height=5*cm))
+        story.append(Spacer(1, 0.5*cm))
+    else:
+        story.append(Spacer(1, 1.5*cm))
+        
     story.append(Paragraph("CRIP", st["title"]))
-    story.append(Paragraph("Comprehensive Risk Intelligence Platform", st["subtitle"]))
+    story.append(Paragraph("Capital Risk Intelligence Platform", st["subtitle"]))
     story.append(Spacer(1, 0.3*cm))
     story.append(HRFlowable(width="100%", thickness=2, color=_NAVY, spaceAfter=6))
     story.append(Paragraph("ACTUARIAL CAPITAL VALIDATION", ParagraphStyle(
@@ -1999,6 +2160,17 @@ def create_pdf_report(report_results):
             story.append(_callout(pa["tier_commentary"], st, _LBLUE, _BLUE))
         story.append(Spacer(1, 0.2*cm))
 
+        if "loss_ratio" in charts:
+            story.append(Image(charts["loss_ratio"], width=16*cm, height=9.3*cm))
+            story.append(Spacer(1, 0.2*cm))
+        if "profit" in charts:
+            story.append(Image(charts["profit"], width=16*cm, height=9.3*cm))
+            story.append(Spacer(1, 0.2*cm))
+            
+        if "tier_dist" in charts:
+            story.append(Image(charts["tier_dist"], width=16*cm, height=9.3*cm))
+            story.append(Spacer(1, 0.2*cm))
+
     # Channel & segment mix
     ch = pa.get("channel_mix", {})
     seg = pa.get("segment_mix", {})
@@ -2128,6 +2300,11 @@ def create_pdf_report(report_results):
             [1.2*cm, 5*cm, 2.5*cm, 2.5*cm, 7.3*cm],
             st))
         story.append(Spacer(1, 0.1*cm))
+        
+        if "feature_importance" in charts:
+            story.append(Image(charts["feature_importance"], width=16*cm, height=9.3*cm))
+            story.append(Spacer(1, 0.2*cm))
+            
         if fi_display:
             top_feat = fi_display[0][1]
             story.append(_callout(
@@ -2209,6 +2386,10 @@ def create_pdf_report(report_results):
     fc_bdr  = _GREEN  if fc_lr < 80 else (_AMBER  if fc_lr < 100 else _RED)
     story.append(_callout(fa.get("interpretation",""), st, fc_fill, fc_bdr))
     story.append(Spacer(1, 0.2*cm))
+    
+    if "freq_sev" in charts:
+        story.append(Image(charts["freq_sev"], width=16*cm, height=9.3*cm))
+        story.append(Spacer(1, 0.2*cm))
 
     # YoY trend table
     yoy_rows = fa.get("yoy_rows", [])
@@ -2244,6 +2425,18 @@ def create_pdf_report(report_results):
             [3*cm, 3.5*cm, 3.5*cm, 8.5*cm],
             st))
         story.append(Spacer(1, 0.2*cm))
+        
+        if "seasonal" in charts:
+            story.append(Image(charts["seasonal"], width=16*cm, height=9.3*cm))
+            story.append(Spacer(1, 0.2*cm))
+        
+        if "forecast" in charts:
+            story.append(Image(charts["forecast"], width=16*cm, height=9.3*cm))
+            story.append(Spacer(1, 0.2*cm))
+            
+        if "premium_forecast" in charts:
+            story.append(Image(charts["premium_forecast"], width=16*cm, height=9.3*cm))
+            story.append(Spacer(1, 0.2*cm))
 
     # Product forecast table
     prod_fc_rows = fa.get("prod_fc_rows", [])
@@ -2327,6 +2520,15 @@ def create_pdf_report(report_results):
             ["Scenario","Stressed CR","Solvency","Capital Consumed","Shortfall"],
             [5.5*cm, 2.5*cm, 2.5*cm, 4*cm, 3.9*cm],
             st))
+            
+        if "stress" in charts:
+            story.append(Spacer(1, 0.2*cm))
+            story.append(Image(charts["stress"], width=16*cm, height=9.3*cm))
+            
+        if "solvency_scenario" in charts:
+            story.append(Spacer(1, 0.2*cm))
+            story.append(Image(charts["solvency_scenario"], width=16*cm, height=9.3*cm))
+            
     story.append(PageBreak())
 
     # ── 10. CHART INTERPRETATIONS ────────────────────────────────

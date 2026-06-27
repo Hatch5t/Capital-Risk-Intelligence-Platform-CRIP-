@@ -176,7 +176,7 @@ def render_api_key_sidebar():
                 masked = "•" * (len(active) - 4) + active[-4:]
                 st.success(f"✅ Key active: `{masked}`")
             else:
-                st.warning("⚠️ No API key — chatbot is in demo mode.")
+                st.warning("⚠️ API Key not found.")
 
             # Input box (password field so the key is hidden while typing)
             new_key = st.text_input(
@@ -198,7 +198,7 @@ def render_api_key_sidebar():
                         st.success("Key saved!")
                         st.rerun()
                     else:
-                        st.error("Please enter a key first.")
+                        st.error("API Key not found.")
 
             with col2:
                 if st.button("Clear Key", use_container_width=True):
@@ -313,7 +313,7 @@ User question: {prompt}"""
 
     # ── Friendly fallback when no key is available ────────────────────────────
     return (
-        "🔑 **No Gemini API key found.**\n\n"
+        "🔑 **API Key not found.**\n\n"
         "Enter your key in the **sidebar → 🔑 Gemini API Key** section to activate "
         "the CRO Assistant. You can get a free key at "
         "[aistudio.google.com](https://aistudio.google.com/app/apikey).\n\n"
