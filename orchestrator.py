@@ -53,7 +53,7 @@ bar = loader_bar.progress(0)
 bar.progress(10)
 from agents.data_governance   import run_governance_pipeline
 bar.progress(30)
-from agents.pricing           import run_pricing_pipeline
+from agents.pricing           import run_pricing_pipeline, generate_rate_recommendation
 bar.progress(50)
 from agents.risk_intelligence import run_risk_pipeline
 bar.progress(70)
@@ -62,6 +62,7 @@ from agents.stress_testing    import run_stress_pipeline        # ← Agent 5
 from agents.chat_agent        import generate_chat_response, build_chat_context     # ← Agent 6
 bar.progress(100)
 import plotly.express as px
+import plotly.graph_objects as go
 
 time.sleep(0.5)
 loader_text.empty()
@@ -233,6 +234,7 @@ if uploaded_file is not None:
                 msg = f"Stress Testing complete — Solvency ratio: {sol:.1f}% — Capital shortfall!"
                 state_val = "error"
             status5.update(label=msg, state=state_val, expanded=False)
+
         # ── Agent 6: Actuarial Report ───────────────────────────────────────────
         with st.status("Agent 6: Actuarial Valuation Report Running...", expanded=True) as status6:
             st.write("Generating actuarial valuation report...")
@@ -338,8 +340,10 @@ if uploaded_file is not None:
             st.write("Cleaned Dataset Preview:")
             st.dataframe(df_clean.head(50))
 
-        # ── Tab 2: Pricing ────────────────────────────────────────────────────
+        # ── Tab 2: Pricing & Profitability ────────────────────────────────────
         with tab2:
+
+            # ── Absolute KPIs ─────────────────────────────────────────────────
             st.subheader("Financial KPIs")
             pc1, pc2, pc3, pc4 = st.columns(4)
             pc1.metric("Total Premium",   f"₹{kpis['Total_Premium']:,.0f}")
@@ -349,34 +353,229 @@ if uploaded_file is not None:
             pc4.metric("Underwriting Profit", f"₹{kpis['Underwriting_Profit']:,.0f}",
                        delta=f"₹{kpis['Underwriting_Profit']:,.0f}", delta_color=dc)
 
-            st.write("Profitability Classification Distribution:")
-            st.dataframe(df_pricing.groupby("Profitability_Tier").size()
-                         .reset_index(name="Count"), use_container_width=True)
+            # ── Ratio cards — actuary-first view ─────────────────────────────
+            st.markdown("#### Portfolio Ratios")
+            ra1, ra2, ra3 = st.columns(3)
 
-            if "Product_Type" in df_pricing.columns:
+            lr_val = kpis.get("Loss_Ratio")
+            er_val = kpis.get("Expense_Ratio")
+            cr_val = kpis.get("Combined_Ratio")
+
+            def _ratio_label(val, good, warn, labels=("Healthy", "Monitor", "Elevated")):
+                """Return (delta_str, delta_color) — lower is better for all three ratios."""
+                if val is None:
+                    return None, "normal"
+                if val < good:
+                    return f"{labels[0]}", "normal"
+                elif val < warn:
+                    return f"{labels[1]}", "off"
+                return f"{labels[2]}", "inverse"
+
+            lr_d, lr_c = _ratio_label(lr_val, 0.65, 0.80)
+            er_d, er_c = _ratio_label(er_val, 0.25, 0.35)
+            cr_d, cr_c = _ratio_label(cr_val, 0.80, 1.00)
+
+            ra1.metric(
+                "Loss Ratio",
+                f"{lr_val:.2f}" if lr_val is not None else "N/A",
+                delta=lr_d, delta_color=lr_c,
+                help="Claims ÷ Written Premium. Target < 0.65 for most lines.",
+            )
+            ra2.metric(
+                "Expense Ratio",
+                f"{er_val:.2f}" if er_val is not None else "N/A",
+                delta=er_d, delta_color=er_c,
+                help="Expenses ÷ Written Premium. Target < 0.25.",
+            )
+            ra3.metric(
+                "Combined Ratio",
+                f"{cr_val:.2f}" if cr_val is not None else "N/A",
+                delta=cr_d, delta_color=cr_c,
+                help="Loss Ratio + Expense Ratio. Below 1.0 = underwriting profit. Target 0.85.",
+            )
+
+            st.divider()
+
+            # ── Profitability Distribution: table + donut ─────────────────────
+            st.subheader("Profitability Classification Distribution")
+            tier_counts = df_pricing.groupby("Profitability_Tier").size().reset_index(name="Count")
+
+            dist_col1, dist_col2 = st.columns([1, 1])
+
+            with dist_col1:
+                st.dataframe(tier_counts, use_container_width=True)
+
+            with dist_col2:
+                _tier_colors_map = {
+                    "Excellent":   "#27ae60",
+                    "Good":        "#2ecc71",
+                    "Marginal":    "#f39c12",
+                    "Loss-Making": "#e74c3c",
+                    "Unknown":     "#808080",
+                }
+                _labels = tier_counts["Profitability_Tier"].tolist()
+                _values = tier_counts["Count"].tolist()
+                _colors = [_tier_colors_map.get(t, "#aaaaaa") for t in _labels]
+
+                fig_donut = go.Figure(go.Pie(
+                    labels=_labels,
+                    values=_values,
+                    hole=0.55,
+                    marker_colors=_colors,
+                    textinfo="label+percent",
+                    hovertemplate="<b>%{label}</b><br>Policies: %{value:,}<br>Share: %{percent}<extra></extra>",
+                ))
+                fig_donut.update_layout(
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    showlegend=False,
+                    height=260,
+                )
+                st.plotly_chart(fig_donut, use_container_width=True)
+
+            # ── UNKNOWN_PRODUCT data quality flag ─────────────────────────────
+            _dq_flags = pricing_results.get("data_quality_flags", [])
+            if _dq_flags:
+                for _flag in _dq_flags:
+                    st.warning(_flag["recommendation"])
+            else:
+                _prod_col = "Product_Type" if "Product_Type" in df_pricing.columns else (
+                    "Product" if "Product" in df_pricing.columns else None
+                )
+                if _prod_col:
+                    _unknown_mask = (
+                        df_pricing[_prod_col].isna() |
+                        df_pricing[_prod_col].str.upper().str.contains("UNKNOWN", na=False)
+                    )
+                    _unknown_n = int(_unknown_mask.sum())
+                    if _unknown_n > 0:
+                        _pct = _unknown_n / len(df_pricing) * 100
+                        st.warning(
+                            f"⚠️ DATA QUALITY: {_unknown_n:,} policies ({_pct:.1f}%) carry an "
+                            f"`UNKNOWN_PRODUCT` classification. These records are included in "
+                            f"portfolio totals but distort product-level ratios. Review source "
+                            f"system mapping before actuarial submission."
+                        )
+
+            st.divider()
+
+            # ── Charts — color-coded by profitability tier ────────────────────
+            _prod_col = "Product_Type" if "Product_Type" in df_pricing.columns else (
+                "Product" if "Product" in df_pricing.columns else None
+            )
+
+            if _prod_col:
+
+                # ── Loss Ratio by Product ─────────────────────────────────────
                 st.subheader("📊 Loss Ratio by Product")
-                lr_df = df_pricing.groupby("Product_Type")["Loss_Ratio"].mean().reset_index()
-                st.plotly_chart(px.bar(lr_df, x='Product_Type', y='Loss_Ratio', color_discrete_sequence=['#0f4c81']), use_container_width=True)
-                
-                st.subheader("💰 Profit by Product")
-                prof_df = df_pricing.groupby("Product_Type")["Underwriting_Profit"].sum().reset_index()
-                st.plotly_chart(px.bar(prof_df, x='Product_Type', y='Underwriting_Profit', color_discrete_sequence=['#0f4c81']), use_container_width=True)
+                lr_df     = df_pricing.groupby(_prod_col)["Loss_Ratio"].mean().reset_index()
+                cr_by_prod = df_pricing.groupby(_prod_col)["Combined_Ratio"].mean()
 
+                def _bar_color(product):
+                    cr = cr_by_prod.get(product, 1.0)
+                    if cr < 0.80:
+                        return "#2ecc71"   # green — profitable
+                    elif cr <= 0.95:
+                        return "#f39c12"   # amber — monitor
+                    return "#e74c3c"       # red — loss-making
+
+                lr_df["bar_color"] = lr_df[_prod_col].map(_bar_color)
+
+                fig_lr = go.Figure(go.Bar(
+                    x=lr_df[_prod_col],
+                    y=lr_df["Loss_Ratio"],
+                    marker_color=lr_df["bar_color"],
+                    hovertemplate="<b>%{x}</b><br>Loss Ratio: %{y:.2f}<extra></extra>",
+                ))
+                # Breakeven reference line
+                fig_lr.add_hline(
+                    y=1.0,
+                    line_dash="dash",
+                    line_color="#e74c3c",
+                    line_width=1.5,
+                    annotation_text="Breakeven (CR = 1.0)",
+                    annotation_position="top right",
+                    annotation_font_color="#e74c3c",
+                )
+                # Target CR reference line
+                fig_lr.add_hline(
+                    y=0.85,
+                    line_dash="dot",
+                    line_color="#3498db",
+                    line_width=1.2,
+                    annotation_text="Target CR (0.85)",
+                    annotation_position="bottom right",
+                    annotation_font_color="#3498db",
+                )
+                fig_lr.update_layout(
+                    xaxis_title="Product",
+                    yaxis_title="Loss Ratio",
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_lr, use_container_width=True)
+
+                # ── Underwriting Profit by Product ────────────────────────────
+                st.subheader("💰 Underwriting Profit by Product")
+                prof_df = df_pricing.groupby(_prod_col)["Underwriting_Profit"].sum().reset_index()
+                prof_df["bar_color"] = prof_df["Underwriting_Profit"].apply(
+                    lambda v: "#2ecc71" if v > 0 else "#e74c3c"
+                )
+
+                fig_prof = go.Figure(go.Bar(
+                    x=prof_df[_prod_col],
+                    y=prof_df["Underwriting_Profit"],
+                    marker_color=prof_df["bar_color"],
+                    hovertemplate="<b>%{x}</b><br>Profit: ₹%{y:,.0f}<extra></extra>",
+                ))
+                fig_prof.add_hline(y=0, line_color="#888888", line_width=1)
+                fig_prof.update_layout(
+                    xaxis_title="Product",
+                    yaxis_title="Underwriting Profit (₹)",
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_prof, use_container_width=True)
+
+            st.divider()
+
+            # ── AI Pricing Insights — actionable rate recommendations ─────────
             st.subheader("AI Pricing Insights")
-            if "Product_Type" in df_pricing.columns:
-                for _, row in df_pricing.groupby("Product_Type")["Combined_Ratio"].mean().reset_index().iterrows():
-                    product, ratio = row["Product_Type"], row["Combined_Ratio"]
-                    if ratio > 1:
-                        st.error(f"**{product}**: Combined Ratio {ratio:.2f} → Underpriced. Immediate rate action required.")
-                    elif ratio < 0.80:
-                        st.success(f"**{product}**: Combined Ratio {ratio:.2f} → Highly Profitable.")
+
+            _agent_insights = pricing_results.get("insights", [])
+
+            if _agent_insights:
+                for _insight in _agent_insights:
+                    if _insight.startswith("🚨"):
+                        st.error(_insight)
+                    elif _insight.startswith("⚠️"):
+                        st.warning(_insight)
+                    elif _insight.startswith("✅"):
+                        st.success(_insight)
                     else:
-                        st.warning(f"**{product}**: Combined Ratio {ratio:.2f} → Monitor Pricing.")
+                        st.info(_insight)
+
+            elif _prod_col:
+                # Fallback: generate inline if the insights list is unexpectedly empty
+                _target_cr = 0.85
+                for _, _row in df_pricing.groupby(_prod_col)["Combined_Ratio"].mean().reset_index().iterrows():
+                    _rec = generate_rate_recommendation(
+                        product_name=str(_row[_prod_col]),
+                        combined_ratio=_row["Combined_Ratio"],
+                        target_cr=_target_cr,
+                    )
+                    if "🚨" in _rec:
+                        st.error(_rec)
+                    elif "⚠️" in _rec:
+                        st.warning(_rec)
+                    else:
+                        st.success(_rec)
+
             else:
                 st.info("Product Type data not available for AI Pricing Insights.")
 
+            st.divider()
+
+            # ── Pricing Dataset Preview & Download ────────────────────────────
             st.subheader("Pricing Dataset Preview")
-            csv = df_pricing.to_csv(index=False).encode('utf-8')
+            csv = df_pricing.to_csv(index=False).encode("utf-8")
             st.download_button("Download Pricing Data", data=csv, file_name="pricing_data.csv", mime="text/csv")
             st.dataframe(df_pricing.head(50))
 
@@ -619,7 +818,7 @@ if uploaded_file is not None:
         
         st.session_state.dashboard_context = dashboard_context
 
-       # ── Tab 6: Final Report ────────────────────────────────────────────────
+        # ── Tab 6: Final Report ────────────────────────────────────────────────
         with tab6:
             st.title("📋 Actuarial Capital Validation & Risk Assessment Report")
             st.caption(
@@ -1119,8 +1318,6 @@ if uploaded_file is not None:
                     )
             else:
                 st.warning("PDF generation failed — check logs for details.")
-
-            st.markdown("---")
 
             st.markdown("---")
 
