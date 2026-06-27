@@ -1948,7 +1948,7 @@ def create_pdf_report(report_results):
         story.append(Spacer(1, 1.5*cm))
         
     story.append(Paragraph("CRIP", st["title"]))
-    story.append(Paragraph("Comprehensive Risk Intelligence Platform", st["subtitle"]))
+    story.append(Paragraph("Capital Risk Intelligence Platform", st["subtitle"]))
     story.append(Spacer(1, 0.3*cm))
     story.append(HRFlowable(width="100%", thickness=2, color=_NAVY, spaceAfter=6))
     story.append(Paragraph("ACTUARIAL CAPITAL VALIDATION", ParagraphStyle(

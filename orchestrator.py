@@ -81,7 +81,7 @@ def get_stress_results(df, scenario): return run_stress_pipeline(df, scenario_id
 @st.cache_data(show_spinner=False)
 def get_pdf_bytes(report_results): return create_pdf_report(report_results)
 
-st.title("CRIP: Comprehensive Risk Intelligence Platform")
+st.title("CRIP: Capital Risk Intelligence Platform")
 st.markdown("Upload a raw insurance dataset to automatically orchestrate all AI agents.")
 
 # ── Sidebar settings ──────────────────────────────────────────────────────────
