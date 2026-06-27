@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 pandas
 numpy
 streamlit
@@ -12,16 +11,9 @@ openpyxl
 openai
 python-dotenv
 jupyter
-=======
-
-pandas 
-numpy 
 matplotlib 
 seaborn 
-xgboost 
-scikit-learn 
-streamlit 
-openpyxl
+
 
 # Core pandas numpy 
 # UI streamlit plotly 
