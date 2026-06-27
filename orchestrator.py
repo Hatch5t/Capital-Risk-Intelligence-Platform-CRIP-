@@ -14,7 +14,28 @@ from agents.risk_intelligence import run_risk_pipeline
 from agents.forecasting       import run_forecasting_pipeline   # ← Agent 4
 from agents.stress_testing    import run_stress_pipeline        # ← Agent 5
 from agents.report_agent import (run_report_pipeline,create_report_dataframe) # <- Agent 6
+from agents.chat_agent import init_chat_history, get_chat_history, append_chat_message, generate_chat_response, build_chat_context
 
+# At the top of the page — runs every rerun but only creates the list once
+init_chat_history()
+
+# Display existing messages
+for msg in get_chat_history():
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Handle new input
+if user_input := st.chat_input("Ask about solvency, risks, findings…"):
+    append_chat_message("user", user_input)
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    context = build_chat_context(st.session_state.report_results)
+    reply = generate_chat_response(user_input, context)
+
+    append_chat_message("assistant", reply)
+    with st.chat_message("assistant"):
+        st.markdown(reply)
 
 st.set_page_config(
     page_title="CRIP Unified Orchestrator",
@@ -94,9 +115,6 @@ with st.sidebar:
             
     st.divider()
     
-<<<<<<< HEAD
-    st.header("📈 Forecasting Settings")
-=======
     st.header("Appearance")
     dark_mode = st.toggle("🌙 Dark Mode")
     if dark_mode:
@@ -117,7 +135,6 @@ with st.sidebar:
 
     
     st.header("Forecasting Settings")
->>>>>>> dc2b999d3e4dbc30047f7db840a3ab70d2199961
     forecast_periods = st.slider("Forecast horizon (months)", 3, 24, 12)
 
     st.divider()
@@ -357,17 +374,6 @@ if uploaded_file is not None:
                 prof_df = df_pricing.groupby("Product_Type")["Underwriting_Profit"].sum().reset_index()
                 st.plotly_chart(px.bar(prof_df, x='Product_Type', y='Underwriting_Profit', color_discrete_sequence=['#0f4c81']), use_container_width=True)
 
-<<<<<<< HEAD
-            st.subheader("🤖 AI Pricing Insights")
-            for _, row in df_pricing.groupby("Product_Type")["Combined_Ratio"].mean().reset_index().iterrows():
-                product, ratio = row["Product_Type"], row["Combined_Ratio"]
-                if ratio > 1:
-                    st.error(f"🔴 **{product}**: Combined Ratio {ratio:.2f} → Underpriced. Immediate rate action required.")
-                elif ratio < 0.80:
-                    st.success(f"🟢 **{product}**: Combined Ratio {ratio:.2f} → Highly Profitable.")
-                else:
-                    st.warning(f"🟡 **{product}**: Combined Ratio {ratio:.2f} → Monitor Pricing.")
-=======
             st.subheader("AI Pricing Insights")
             if "Product_Type" in df_pricing.columns:
                 for _, row in df_pricing.groupby("Product_Type")["Combined_Ratio"].mean().reset_index().iterrows():
@@ -380,7 +386,6 @@ if uploaded_file is not None:
                         st.warning(f"**{product}**: Combined Ratio {ratio:.2f} → Monitor Pricing.")
             else:
                 st.info("Product Type data not available for AI Pricing Insights.")
->>>>>>> dc2b999d3e4dbc30047f7db840a3ab70d2199961
 
             st.subheader("Pricing Dataset Preview")
             csv = df_pricing.to_csv(index=False).encode('utf-8')

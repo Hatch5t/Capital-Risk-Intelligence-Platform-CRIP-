@@ -105,8 +105,6 @@ def build_chat_context(report_results: dict) -> dict:
         ctx["Findings Register"] = " | ".join(_fmt_finding(f) for f in fr)
 
     # ── Business Insights ─────────────────────────────────────────────────────
-    # Each sub-field can be a dict, a list, or a plain string depending on
-    # how generate_business_insights() built it — handle all three safely.
     def _bi_get(obj, key, fallback="N/A"):
         """Safe getter: works on dict, converts list/str to string."""
         if isinstance(obj, dict):
@@ -149,17 +147,66 @@ def build_chat_context(report_results: dict) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# GEMINI MODEL — cached so it is only created ONCE per session, never on rerun
+# ─────────────────────────────────────────────────────────────────────────────
+
+@st.cache_resource
+def _get_gemini_model():
+    """
+    Load and return the Gemini model exactly once.
+    @st.cache_resource keeps the object alive across reruns so Streamlit
+    never re-initialises it when the user sends a chat message.
+    Returns None if no API key is configured.
+    """
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key:
+        return None
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=gemini_key)
+        return genai.GenerativeModel("gemini-2.5-flash")
+    except Exception as e:
+        st.warning(f"⚠️ Could not initialise Gemini: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAT HISTORY — stored in session_state so it survives reruns
+# ─────────────────────────────────────────────────────────────────────────────
+
+def init_chat_history():
+    """
+    Call this once at the top of your CRO Assistant page.
+    Initialises st.session_state.crip_chat_messages if not already present.
+    """
+    if "crip_chat_messages" not in st.session_state:
+        st.session_state.crip_chat_messages = []
+
+
+def get_chat_history() -> list:
+    """Return the current chat message list."""
+    return st.session_state.get("crip_chat_messages", [])
+
+
+def append_chat_message(role: str, content: str):
+    """Append a message dict to the persistent chat history."""
+    if "crip_chat_messages" not in st.session_state:
+        st.session_state.crip_chat_messages = []
+    st.session_state.crip_chat_messages.append({"role": role, "content": content})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CHAT RESPONSE GENERATOR
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_chat_response(prompt: str, context: dict) -> str:
     """
-    Takes the user prompt and the dashboard context dictionary, and queries an LLM.
-    Includes strict guardrails to prevent answering off-topic questions.
+    Takes the user prompt and the dashboard context dictionary, and queries
+    the cached Gemini model. Includes strict guardrails to prevent answering
+    off-topic questions.
     """
     context_str = "\n".join([f"  • {k}: {v}" for k, v in context.items()])
 
-    # Gemini needs system instruction merged into the first user turn
     full_prompt = f"""You are the Chief Risk Officer (CRO) AI Assistant for CRIP — Capital Risk Intelligence Platform.
 
 Your role is to answer questions about the actuarial and risk report generated for the currently loaded insurance portfolio. Use ONLY the data below. Do not make up numbers.
@@ -179,13 +226,10 @@ GUIDELINES:
 
 User question: {prompt}"""
 
-    # ── Google Gemini (free tier) ─────────────────────────────────────────────
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if gemini_key:
+    # ── Use the cached model ──────────────────────────────────────────────────
+    model = _get_gemini_model()
+    if model:
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel("gemini-2.5-flash")
             response = model.generate_content(full_prompt)
             return response.text
         except Exception as e:
