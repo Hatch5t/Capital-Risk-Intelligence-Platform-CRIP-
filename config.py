@@ -1,6 +1,10 @@
 # ==========================================
 # CRIP - GLOBAL CONFIGURATION
 # ==========================================
+import os
+
+CONFIG_FILE_PATH = os.path.abspath(__file__)
+
 # Use this file to tweak hyperparameters, weights, and thresholds
 # without modifying the underlying agent logic.
 

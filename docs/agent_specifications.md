@@ -190,7 +190,13 @@ Flood / Cyclone / Earthquake Scenario
 
 ---
 
-## Agent 6: Executive Reporting Agent
+## Agent 6: Chatbot Agent
+
+Uses Gemini API KEY to answer all user's "RELEVANT" question "ONLY".
+
+---
+
+## Agent 7: Executive Reporting Agent
 
 ### Inputs
 
@@ -252,6 +258,10 @@ Time Series Agent
 ↓
 
 Stress Testing Agent
+
+↓
+
+ChatBot Agent
 
 ↓
 

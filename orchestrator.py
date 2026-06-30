@@ -100,7 +100,8 @@ with st.sidebar:
     if st.button("Open Config File", use_container_width=True):
         try:
             import os
-            os.startfile("config.py")
+            import config
+            os.startfile(config.CONFIG_FILE_PATH)
         except Exception as e:
             st.error(f"Could not open file: {e}")
             
